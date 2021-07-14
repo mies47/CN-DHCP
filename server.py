@@ -19,6 +19,10 @@ def send_DHCP_offer(data: bytes):
     transaction_id, seconds, _, client_mac_address, _ = m.extract_packet(data)
 
     str_client_mac = m.get_mac_str(client_mac_address)
+
+    if str_client_mac in c.CONFIG['black_list']: #Check not to respond to blocked MACs
+        return
+
     global lock, offered_client_macs, assigned_mac_ip
     lock.acquire()
 
@@ -77,16 +81,31 @@ def dhcp_client_handler(data: bytes):
 
 
 def initialize_ip_pool():
-    global ip_pool
+    global ip_pool, infos, assigned_mac_ip
+
+    reserved_ips = []
+    for mac, ip in c.CONFIG['reservation_list'].items():
+        reserved_ips.append(ip)
+        assigned_mac_ip[mac] = ip
+        infos[ip] = {
+            'mac': mac,
+            'name': 'Unkown',
+            'expire': -1
+        }
+
     if c.CONFIG['pool_mode'] == 'range':
         start = ipaddress.ip_address(c.CONFIG['range']['from'])
         end = ipaddress.ip_address(c.CONFIG['range']['to'])
         while start <= end:
-            ip_pool.append(str(start))
+            if start not in reserved_ips:
+                ip_pool.append(str(start))
             start += 1
 
     else:
-        ip_pool = [str(i) for i in ipaddress.ip_network(c.CONFIG['subnet']['ip_block']+ '/' + c.CONFIG['subnet']['subnet_mask'])]
+        ip_pool = []
+        for i in ipaddress.ip_network(c.CONFIG['subnet']['ip_block']+ '/' + c.CONFIG['subnet']['subnet_mask']):
+            if i not in reserved_ips:
+                ip_pool.append(str(i))
         ip_pool.pop(0)
 
 
@@ -116,9 +135,22 @@ def get_ip_from_pool():
 
     return selected_ip
 
+def show_clients():
+    global infos, lock
+    while True:
+        instruction = input('>')
+        if instruction == 'show_client':
+            print('Name\t\tMAC\t\t\tIP\t\t\tExpiration')
+            lock.acquire()
+            for ip, info in infos.items():
+                print(f"{info['name']}\t{info['mac']}\t{ip}\t{info['expire'] - time.time()} seconds ")
+            lock.release()
+
 if __name__ == '__main__':
     check_and_release()
     initialize_ip_pool()
+    show_clients_thread = threading.Thread(target=show_clients)
+    show_clients_thread.start()
     s_socket = m.create_socket('', c.SERVER_PORT)
 
     while True:
