@@ -7,5 +7,5 @@ ENCODING = 'utf-8'
 INITIAL_INTERVAL = 10
 BACKOFF_CUTOFF = 120
 
-f = open('config.json')
-CONFIG = json.loads(f)
+f = open('config.json', 'r')
+CONFIG = json.load(f)
