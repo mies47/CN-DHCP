@@ -41,7 +41,7 @@ def ip_byte_to_str(ip:bytes):
 def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_address:bytearray,  server_ip: str= '',offered_ip:bytearray= None):
     op_code = (isRequest and 1) or 2 # 1 for a request 2 for response
     hostname_opcode = unhexlify(format(12, '02x'))
-    name = unhexlify(''.join(format(ord(x), '02x') for x in socket.gethostname()))
+    name = socket.gethostname().encode(c.ENCODING)
     name_len = unhexlify(format(len(name), '02x'))
 
     # if server_ip != '':
@@ -78,7 +78,15 @@ def extract_packet(data: bytearray):
     seconds = int(hexlify(data[8:10]), 16)
     offered_ip = hexlify(data[16:20])
     client_mac_address = data[28:34]
-    return transaction_id, seconds, ip_byte_to_str(offered_ip), client_mac_address
+    hostname = ''
+    if len(data) > 240:
+        opcode = int(hexlify(data[240:241]), 16)
+
+        if opcode == 12: #hostname option
+            len_host_name = int(hexlify(data[241:242]), 16)
+            hostname += data[242:242+ len_host_name].decode(c.ENCODING)
+
+    return transaction_id, seconds, ip_byte_to_str(offered_ip), client_mac_address, hostname
 
 def create_socket(ip:str, port:int):
     created_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)

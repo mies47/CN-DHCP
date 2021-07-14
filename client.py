@@ -4,7 +4,6 @@ import common.constants as c
 import common.methods as m 
 from random import getrandbits, uniform
 
-
 def get_waiting_interval(prev_interval: int):
     if prev_interval == 0:
         return c.INITIAL_INTERVAL
@@ -28,7 +27,7 @@ def get_DHCP_offer(last_transaction_id: int, waiting_time: int):
     c_socket.settimeout(waiting_time)
     try:
         data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
-        offer_transaction_id, _, offered_ip, _ = m.extract_packet(data)
+        offer_transaction_id, _, offered_ip, _, _ = m.extract_packet(data)
         if offer_transaction_id == last_transaction_id:
             print('Offered IP is ' + offered_ip)
             c_socket.close()
@@ -49,7 +48,7 @@ def get_DHCP_ack(last_transaction_id: int, waiting_time: int, start_time:float):
     c_socket.settimeout(waiting_time - m.get_passed_time(start_time))
     try:
         data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
-        offer_transaction_id, _, offered_ip, _ = m.extract_packet(data)
+        offer_transaction_id, _, offered_ip, _, _ = m.extract_packet(data)
         if offer_transaction_id == last_transaction_id:
             print('Got IP ' + offered_ip)
             c_socket.close()
