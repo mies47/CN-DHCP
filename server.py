@@ -3,30 +3,57 @@ import threading
 import common.constants as c
 import common.methods as m 
 
-def send_DHCP_offer(seconds:int, transaction_id:int, client_mac_address:bytearray):
-    all_ips = m.get_all_interfaces()
-    for ip in all_ips:
+ALL_IPS = m.get_all_interfaces()
+offered_client_macs = {}
+ip_pool = []
+infos = {}
+
+lock = threading.Lock()
+
+
+def send_DHCP_offer(data: bytearray):
+    transaction_id, seconds, _, client_mac_address = m.extract_packet(data)
+
+    global lock, offered_client_macs
+    lock.acquire()
+    offered_ip = get_ip_from_pool()
+    offered_client_macs[m.get_mac_str(client_mac_address)] = offered_ip
+    lock.release()
+
+    for ip in ALL_IPS:
+        sl_socket = m.create_socket(ip, 0)
+        sl_socket.sendto(m.make_packet(False, seconds, transaction_id, client_mac_address, m.ip_str_to_byte(offered_ip)), ('<broadcast>', c.CLIENT_PORT))
+
+def send_DHCP_ack(data: bytearray):
+    transaction_id, seconds, _, client_mac_address = m.extract_packet(data)
+
+    client_mac_address = m.get_mac_str(client_mac_address)
+    global lock, offered_client_macs, ip_pool, infos
+    offered_ip = offered_client_macs[client_mac_address]
+    lock.acquire()
+    offered_client_macs.pop(client_mac_address)
+    if offered_ip in ip_pool:
+        ip_pool.remove(offered_ip)
+    infos[client_mac_address] = {
+        'IP': offered_ip,
+        'name': 'mies',
+        'expire': m.get_expiration()
+    }
+    lock.release()
+
+    for ip in ALL_IPS:
         sl_socket = m.create_socket(ip, 0)
         sl_socket.sendto(m.make_packet(False, seconds, transaction_id, client_mac_address, m.ip_str_to_byte('192.168.1.10')), ('<broadcast>', c.CLIENT_PORT))
 
-def send_DHCP_ack(data: bytearray, offered_ip:str):
-    pass
+def dhcp_client_handler(data: bytearray):
+    _, _, _, client_mac_address = m.extract_packet(data)
+    if m.get_mac_str(client_mac_address) in offered_client_macs:
+        send_DHCP_ack(data)
+    else:
+        send_DHCP_offer(data)
 
-def dhcp_client_handler(s_socket:socket.socket, data: bytearray, info):
-    print(f'Client {info[0]} with port {info[1]} DHCP discover recieved')
-    transaction_id, seconds, _, client_mac_address = m.extract_packet(data)
-    print(f'Transaction_id:{transaction_id}\nmac_address {m.get_mac_str(client_mac_address)}')
-    send_DHCP_offer(seconds, transaction_id, client_mac_address)
-    s_socket.settimeout(c.INITIAL_INTERVAL)
-    # while True:
-    #     try:
-    #         data, info = s_socket.recvfrom(c.BUFFER_SIZE)
-    #         if transaction_id ==
-    #     except socket.timeout:
-    #         s_socket.close()
-    #         break
-
-
+def get_ip_from_pool():
+    return '192.168.1.3'
 
 if __name__ == '__main__':
     s_socket = m.create_socket('', c.SERVER_PORT)

@@ -3,6 +3,7 @@ from uuid import getnode
 from binascii import unhexlify, hexlify
 import socket
 import common.constants as c
+import json
 
 def get_mac():
     mac = str(hex(getnode()))
@@ -37,11 +38,16 @@ def ip_byte_to_str(ip:bytes):
 
     return '.'.join(ip_b)
 
-def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_address:bytearray, offered_ip:bytearray= None):
+def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_address:bytearray,  server_ip: str= '',offered_ip:bytearray= None):
     op_code = (isRequest and 1) or 2 # 1 for a request 2 for response
     hostname_opcode = unhexlify(format(12, '02x'))
     name = unhexlify(''.join(format(ord(x), '02x') for x in socket.gethostname()))
     name_len = unhexlify(format(len(name), '02x'))
+
+    # if server_ip != '':
+    #     server_ip_opcode = unhexlify(format(54, '02x'))
+    #     server_ip = ip_str_to_byte(server_ip)
+    #     server_ip_len = unhexlify(format(len(server_ip), '02x'))
 
     packet = b''
     packet += unhexlify(format(op_code, '02x'))
@@ -61,6 +67,7 @@ def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_a
     packet += b'\x00' * 125 #Boot file name not given
     packet += b'\x63\x82\x53\x63'   #Magic cookie: DHCP
     packet += (isRequest and (hostname_opcode + name_len + name)) or b'' # Hostname of client
+    # packet += (server_ip and (server_ip_opcode + server_ip_len + server_ip)) or b'' #IP of DHCP server
     packet += (isRequest and b'\xff') or b'' # End of options
 
     return packet
@@ -90,3 +97,7 @@ def get_all_interfaces():
 
 def get_passed_time(start:float):
     return int(time() - start)
+
+def get_expiration():
+    lease_time = int(c.CONFIG['lease_time'])
+    return time() + lease_time

@@ -23,12 +23,34 @@ def send_DHCP_discover(c_socket: socket.socket, mac_addr:bytes):
 
     return transaction_id
 
-def send_DHCP_discover(c_socket: socket.socket, mac_addr:bytes):
+def get_DHCP_offer(c_socket: socket.socket, last_transaction_id: int, waiting_time: int):
+    c_socket.settimeout(waiting_time)
+    try:
+        data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
+        offer_transaction_id, _, offered_ip, _ = m.extract_packet(data)
+        if offer_transaction_id == last_transaction_id:
+            print('Offered IP is ' + offered_ip)
+            return offered_ip
+    except socket.timeout:
+            return 'Time out'
+
+def send_DHCP_request(c_socket: socket.socket, mac_addr:bytes, start_time:float):
     transaction_id = getrandbits(32)
-    c_socket.sendto(m.make_packet(True, 0, transaction_id, mac_addr), ('<broadcast>', c.SERVER_PORT))
+    c_socket.sendto(m.make_packet(True, m.get_passed_time(start_time), transaction_id, mac_addr), ('<broadcast>', c.SERVER_PORT))
     print('DHCP Request broadcasted in network')
 
     return transaction_id
+
+def get_DHCP_ack(c_socket: socket.socket, last_transaction_id: int, waiting_time: int, start_time:float):
+    c_socket.settimeout(waiting_time - m.get_passed_time(start_time))
+    try:
+        data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
+        offer_transaction_id, _, offered_ip, _ = m.extract_packet(data)
+        if offer_transaction_id == last_transaction_id:
+            print('Got IP ' + offered_ip)
+            exit(0)
+    except socket.timeout:
+        return 'Time out'
 
 if __name__ == '__main__':
     all_ips = m.get_all_interfaces()
@@ -39,26 +61,10 @@ if __name__ == '__main__':
         for ip in all_ips:
             c_socket = m.create_socket(ip, 0)
             start = time.time()
-            transaction_id = send_DHCP_discover(c_socket)
-            print(transaction_id)
-            l_socket = m.create_socket('', c.CLIENT_PORT)
-            l_socket.settimeout(waiting_time)
-            try:
-                data, info = l_socket.recvfrom(c.BUFFER_SIZE)
-                print(info)
-                offer_transaction_id, _, offered_ip, _ = m.extract_packet(data)
-                if offer_transaction_id == transaction_id:
-                    c_socket.sendto(m.make_packet(True, m.get_passed_time(start), transaction_id, m.get_mac()), ('<broadcast>', c.SERVER_PORT))
-                    l_socket.settimeout(waiting_time - m.get_passed_time(start))
-                    while True:
-                        data, info = l_socket.recvfrom(c.BUFFER_SIZE)
-                        ack_transaction_id, _, offered_ip, _ = m.extract_packet(data)
-                        if ack_transaction_id == transaction_id:
-                            print('IP is:')
-                            print(offered_ip)
-                            exit(0)
-            except socket.timeout:
-                c_socket.close()
-                l_socket.close()
-                print('Timeout exceeded. Trying again...')
-                waiting_time = get_waiting_interval(waiting_time)
+            transaction_id = send_DHCP_discover(c_socket, client_mac)
+            result = get_DHCP_offer(c_socket, transaction_id, waiting_time)
+            if result and result != 'Time out':
+                transaction_id = send_DHCP_request(c_socket, client_mac, start)
+                result = get_DHCP_ack(c_socket, transaction_id, waiting_time, start)
+            
+            waiting_time = get_waiting_interval(waiting_time)
