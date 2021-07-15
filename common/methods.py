@@ -1,9 +1,10 @@
 from time import time
 from uuid import getnode
 from binascii import unhexlify, hexlify
+from psutil import net_if_addrs
+from fnmatch import fnmatch
 import socket
 import common.constants as c
-import json
 
 def get_mac():
     mac = str(hex(getnode()))
@@ -98,10 +99,12 @@ def create_socket(ip:str, port:int):
 
 
 def get_all_interfaces():
-    interfaces = socket.getaddrinfo(host=socket.gethostname(), port=None, family=socket.AF_INET)
-    all_ips = [ip[-1][0] for ip in interfaces]
-    all_ips = set(all_ips)
-    return(list(all_ips))
+    all_ips = []
+    for name, i in net_if_addrs().items():
+        for j in i:
+            if j.family == socket.AddressFamily.AF_INET and (name == 'lo' or fnmatch(name, 'vmnet*')):
+                all_ips.append(j.address)
+    return all_ips
 
 def get_passed_time(start:float):
     return int(time() - start)
