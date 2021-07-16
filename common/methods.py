@@ -45,10 +45,10 @@ def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_a
     name = socket.gethostname().encode(c.ENCODING)
     name_len = unhexlify(format(len(name), '02x'))
 
-    # if server_ip != '':
-    #     server_ip_opcode = unhexlify(format(54, '02x'))
-    #     server_ip = ip_str_to_byte(server_ip)
-    #     server_ip_len = unhexlify(format(len(server_ip), '02x'))
+    if server_ip != '':
+        server_ip_opcode = unhexlify(format(54, '02x'))
+        server_ip = ip_str_to_byte(server_ip)
+        server_ip_len = unhexlify(format(len(server_ip), '02x'))
 
     packet = b''
     packet += unhexlify(format(op_code, '02x'))
@@ -68,8 +68,8 @@ def make_packet(isRequest: bool, seconds:int, transaction_identifier: int, mac_a
     packet += b'\x00' * 125 #Boot file name not given
     packet += b'\x63\x82\x53\x63'   #Magic cookie: DHCP
     packet += (isRequest and (hostname_opcode + name_len + name)) or b'' # Hostname of client
-    # packet += (server_ip and (server_ip_opcode + server_ip_len + server_ip)) or b'' #IP of DHCP server
-    packet += (isRequest and b'\xff') or b'' # End of options
+    packet += (server_ip and (server_ip_opcode + server_ip_len + server_ip)) or b'' #IP of DHCP server
+    packet += ((isRequest or server_ip) and b'\xff') or b'' # End of options
 
     return packet
 
@@ -80,14 +80,25 @@ def extract_packet(data: bytearray):
     offered_ip = hexlify(data[16:20])
     client_mac_address = data[28:34]
     hostname = ''
+    server_ip = ''
     if len(data) > 240:
-        opcode = int(hexlify(data[240:241]), 16)
+        next_bit = data[240:241]
+        next_index = 240
+        while next_bit != b'\xff' and next_bit != b'': 
+            opcode = int(hexlify(next_bit), 16)
 
-        if opcode == 12: #hostname option
-            len_host_name = int(hexlify(data[241:242]), 16)
-            hostname += data[242:242+ len_host_name].decode(c.ENCODING)
+            if opcode == 12: #hostname option
+                len_host_name = int(hexlify(data[next_index+1:next_index+2]), 16)
+                hostname += data[next_index+2:next_index+2+ len_host_name].decode(c.ENCODING)
+                next_index = next_index+2+ len_host_name
+            elif opcode == 54:
+                len_server = int(hexlify(data[next_index+1:next_index+2]), 16)
+                server_ip = ip_byte_to_str(hexlify(data[next_index+2:next_index+2+ len_server]))
+                next_index = next_index+2+ len_server
 
-    return transaction_id, seconds, ip_byte_to_str(offered_ip), client_mac_address, hostname
+            next_bit = data[next_index: next_index+1]
+
+    return transaction_id, seconds, ip_byte_to_str(offered_ip), client_mac_address, hostname, server_ip
 
 def create_socket(ip:str, port:int):
     created_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -102,7 +113,7 @@ def get_all_interfaces():
     all_ips = []
     for name, i in net_if_addrs().items():
         for j in i:
-            if j.family == socket.AddressFamily.AF_INET and (name == 'lo' or fnmatch(name, 'vmnet*')):
+            if j.family == socket.AddressFamily.AF_INET and (name == 'lo' or fnmatch(name, 'vmnet*') or fnmatch(name, 'ens*')):
                 all_ips.append(j.address)
     return all_ips
 

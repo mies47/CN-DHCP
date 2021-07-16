@@ -16,8 +16,7 @@ lock = threading.Lock()
 
 
 def send_DHCP_offer(data: bytes):
-    transaction_id, seconds, _, client_mac_address, _ = m.extract_packet(data)
-
+    transaction_id, seconds, _, client_mac_address, _, _ = m.extract_packet(data)
     str_client_mac = m.get_mac_str(client_mac_address)
 
     if str_client_mac in c.CONFIG['black_list']: #Check not to respond to blocked MACs
@@ -27,28 +26,33 @@ def send_DHCP_offer(data: bytes):
     lock.acquire()
 
     if str_client_mac in assigned_mac_ip.keys():
-        send_DHCP_ack(data, assigned_mac_ip[str_client_mac])
-        lock.release()
-        return
+        offered_ip = assigned_mac_ip[str_client_mac]
+    else:
+        offered_ip = get_ip_from_pool()
 
-    offered_ip = get_ip_from_pool()
     offered_client_macs[m.get_mac_str(client_mac_address)] = offered_ip
     lock.release()
 
     for ip in ALL_IPS:
         sl_socket = m.create_socket(ip, 0)
-        sl_socket.sendto(m.make_packet(False, seconds, transaction_id, client_mac_address, '', m.ip_str_to_byte(offered_ip)), ('<broadcast>', c.CLIENT_PORT))
+        server_ip = ip if ip != '127.0.0.1' else ALL_IPS[1]
+        sl_socket.sendto(m.make_packet(False, seconds, transaction_id, client_mac_address, server_ip, m.ip_str_to_byte(offered_ip)), ('<broadcast>', c.CLIENT_PORT))
 
-def send_DHCP_ack(data: bytes, given_ip=None):
-    transaction_id, seconds, _, client_mac_address, host_name = m.extract_packet(data)
+def send_DHCP_ack(data: bytes):
+    transaction_id, seconds, _, client_mac_address, host_name, server_ip = m.extract_packet(data)
     ip_available = True
 
-    if not given_ip:
-        str_client_mac_address = m.get_mac_str(client_mac_address)
-        global lock, assigned_mac_ip, offered_client_macs, ip_pool, infos, lease_ip
-        offered_ip = offered_client_macs[str_client_mac_address]
-        lock.acquire()
+    global lock, assigned_mac_ip, offered_client_macs, ip_pool, infos, lease_ip
+    str_client_mac_address = m.get_mac_str(client_mac_address)
+
+    lock.acquire()
+    if server_ip not in ALL_IPS:
         offered_client_macs.pop(str_client_mac_address)
+        lock.release()
+        return
+
+    if str_client_mac_address not in assigned_mac_ip.keys():
+        offered_ip = offered_client_macs[str_client_mac_address]
         if offered_ip in ip_pool:
             ip_pool.remove(offered_ip)
             infos[offered_ip] = {
@@ -63,17 +67,21 @@ def send_DHCP_ack(data: bytes, given_ip=None):
             assigned_mac_ip[str_client_mac_address] = offered_ip
         else:
             ip_available = False
-        lock.release()
     else:
-        offered_ip = given_ip
+        offered_ip = assigned_mac_ip[str_client_mac_address]
+    
+    offered_client_macs.pop(str_client_mac_address)
+
+    lock.release()
 
     if ip_available:
         for ip in ALL_IPS:
             sl_socket = m.create_socket(ip, 0)
+            server_ip = ip if ip != '127.0.0.1' else ALL_IPS[1]
             sl_socket.sendto(m.make_packet(False, seconds, transaction_id, client_mac_address,'', m.ip_str_to_byte(offered_ip)), ('<broadcast>', c.CLIENT_PORT))
 
 def dhcp_client_handler(data: bytes):
-    _, _, _, client_mac_address, _ = m.extract_packet(data)
+    _, _, _, client_mac_address, _, _ = m.extract_packet(data)
     if m.get_mac_str(client_mac_address) in offered_client_macs:
         send_DHCP_ack(data)
     else:

@@ -31,22 +31,22 @@ def get_DHCP_offer(last_transaction_id: int, waiting_time: int):
     c_socket.settimeout(waiting_time)
     try:
         data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
-        offer_transaction_id, _, offered_ip, _, _ = m.extract_packet(data)
+        offer_transaction_id, _, offered_ip, _, _, server_ip = m.extract_packet(data)
         if offer_transaction_id == last_transaction_id:
             print('Offered IP is ' + offered_ip)
             c_socket.close()
-            return offered_ip
+            return offered_ip, server_ip
         else:
             get_DHCP_offer(last_transaction_id, waiting_time)
     except socket.timeout:
         c_socket.close()
-        return 'Time out'
+        return 'Time out', None
 
-def send_DHCP_request(mac_addr:bytes, start_time:float):
+def send_DHCP_request(mac_addr:bytes, server_ip:str , start_time:float):
     transaction_id = getrandbits(32)
     for ip in ALL_IPS:
         c_socket = m.create_socket(ip, 0)
-        c_socket.sendto(m.make_packet(True, m.get_passed_time(start_time), transaction_id, mac_addr), ('<broadcast>', c.SERVER_PORT))
+        c_socket.sendto(m.make_packet(True, m.get_passed_time(start_time), transaction_id, mac_addr, server_ip), ('<broadcast>', c.SERVER_PORT))
     print('DHCP Request broadcasted in network')
 
     return transaction_id
@@ -56,7 +56,7 @@ def get_DHCP_ack(last_transaction_id: int, waiting_time: int, start_time:float):
     c_socket.settimeout(waiting_time - m.get_passed_time(start_time))
     try:
         data, _ = c_socket.recvfrom(c.BUFFER_SIZE)
-        offer_transaction_id, _, offered_ip, _, _ = m.extract_packet(data)
+        offer_transaction_id, _, offered_ip, _, _, _ = m.extract_packet(data)
         if offer_transaction_id == last_transaction_id:
             print('Got IP ' + offered_ip)
             c_socket.close()
@@ -77,9 +77,9 @@ if __name__ == '__main__':
         
         start = time.time()
         transaction_id = send_DHCP_discover(client_mac)
-        result = get_DHCP_offer(transaction_id, waiting_time)
+        result, server_ip = get_DHCP_offer(transaction_id, waiting_time)
         if result and result != 'Time out':
-            transaction_id = send_DHCP_request(client_mac, start)
+            transaction_id = send_DHCP_request(client_mac, server_ip, start)
             result = get_DHCP_ack(transaction_id, waiting_time, start)
         
         waiting_time = get_waiting_interval(waiting_time)
